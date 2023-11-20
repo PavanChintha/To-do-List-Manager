@@ -1,99 +1,216 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include <algorithm>
+#include <stack>
 
 using namespace std;
 
-class Task {
+class TaskMemento {
 public:
-    Task(string description, string due_date) {
-        this->description = description;
-        this->due_date = due_date;
-        this->completed = false;
-    }
+    TaskMemento(const string& desc, bool completed, const string& dueDate)
+        : description(desc), isCompleted(completed), dueDate(dueDate) {}
 
-    void mark_completed() {
-        this->completed = true;
-    }
-
-    void mark_pending() {
-        this->completed = false;
-    }
-
-    bool is_completed() {
-        return this->completed;
-    }
-
-    string get_description() {
-        return this->description;
-    }
-
-    string get_due_date() {
-        return this->due_date;
-    }
+    const string& getDescription() const { return description; }
+    bool getCompletedStatus() const { return isCompleted; }
+    const string& getDueDate() const { return dueDate; }
 
 private:
     string description;
-    string due_date;
-    bool completed;
+    bool isCompleted;
+    string dueDate;
 };
 
-class ToDoList {
+class Task {
 public:
-    void add_task(Task task) {
+    class Builder {
+    public:
+        Builder(const string& desc) : description(desc), completed(false) {}
+
+        Builder& setDueDate(const string& date) {
+            dueDate = date;
+            return *this;
+        }
+
+        Builder& setTags(const vector<string>& taskTags) {
+            tags = taskTags;
+            return *this;
+        }
+
+        Task build() const {
+            return Task(description, completed, dueDate, tags);
+        }
+
+    private:
+        string description;
+        bool completed;
+        string dueDate;
+        vector<string> tags;
+
+        friend class Task;
+    };
+
+    void markCompleted() {
+        if (!completed) {
+            completed = true;
+        }
+    }
+
+    void markPending() {
+        if (completed) {
+            completed = false;
+        }
+    }
+
+    bool isCompleted() const {
+        return completed;
+    }
+
+    const string& getDescription() const {
+        return description;
+    }
+
+    void display(int index) const {
+        cout << index + 1 << ". " << description << " - " << (completed ? "Completed" : "Pending");
+        if (!dueDate.empty()) {
+            cout << ", Due: " << dueDate;
+        }
+        cout << endl;
+    }
+
+    TaskMemento save() const {
+        return TaskMemento(description, completed, dueDate);
+    }
+
+    void restore(const TaskMemento& memento) {
+        description = memento.getDescription();
+        completed = memento.getCompletedStatus();
+        dueDate = memento.getDueDate();
+    }
+
+private:
+    Task(const string& desc, bool isCompleted, const string& date, const vector<string>& taskTags)
+        : description(desc), completed(isCompleted), dueDate(date), tags(taskTags) {}
+
+    string description;
+    bool completed;
+    string dueDate;
+    vector<string> tags;
+};
+
+class TaskHistory {
+public:
+    void addMemento(const TaskMemento& memento) {
+        history.push(memento);
+        redoStack = stack<TaskMemento>(); // Clear redo stack when a new action is performed
+    }
+
+    TaskMemento getMemento() {
+        TaskMemento memento = history.top();
+        history.pop();
+        redoStack.push(memento);
+        return memento;
+    }
+
+    bool isEmpty() const {
+        return history.empty();
+    }
+
+    bool isRedoStackEmpty() const {
+        return redoStack.empty();
+    }
+
+    TaskMemento redo() {
+        TaskMemento memento = redoStack.top();
+        redoStack.pop();
+        history.push(memento);
+        return memento;
+    }
+
+private:
+    stack<TaskMemento> history;
+    stack<TaskMemento> redoStack;
+};
+
+class ToDoListManager {
+public:
+    void addTask(const Task& task) {
         tasks.push_back(task);
+        history.addMemento(task.save());
     }
 
-    void delete_task(int index) {
-        tasks.erase(tasks.begin() + index);
-    }
-
-    void mark_task_completed(int index) {
-        tasks[index].mark_completed();
-    }
-
-    void mark_task_pending(int index) {
-        tasks[index].mark_pending();
-    }
-
-    void view_all_tasks() {
-        cout << "All Tasks:" << endl;
-        for (int i = 0; i < tasks.size(); i++) {
-            cout << i + 1 << ". " << tasks[i].get_description() << " - ";
-            if (tasks[i].is_completed()) {
-                cout << "Completed";
-            } else {
-                cout << "Pending";
-            }
-            cout << ", Due: " << tasks[i].get_due_date() << endl;
+    void markTaskCompleted(int index) {
+        if (index >= 0 && index < tasks.size() && !tasks[index].isCompleted()) {
+            history.addMemento(tasks[index].save());
+            tasks[index].markCompleted();
         }
     }
 
-    void view_completed_tasks() {
-        cout << "Completed Tasks:" << endl;
-        for (int i = 0; i < tasks.size(); i++) {
-            if (tasks[i].is_completed()) {
-                cout << i + 1 << ". " << tasks[i].get_description() << ", Due: " << tasks[i].get_due_date() << endl;
+    void markTaskPending(int index) {
+        if (index >= 0 && index < tasks.size() && tasks[index].isCompleted()) {
+            history.addMemento(tasks[index].save());
+            tasks[index].markPending();
+        }
+    }
+
+    void deleteTask(int index) {
+        if (index >= 0 && index < tasks.size()) {
+            history.addMemento(tasks[index].save());
+            tasks.erase(tasks.begin() + index);
+        }
+    }
+
+    void viewTasks(const string& filter) const {
+        cout << "Tasks:" << endl;
+
+        for (size_t i = 0; i < tasks.size(); ++i) {
+            if (filter == "Show all" ||
+                (filter == "Show completed" && tasks[i].isCompleted()) ||
+                (filter == "Show pending" && !tasks[i].isCompleted())) {
+                tasks[i].display(i);
             }
         }
     }
 
-    void view_pending_tasks() {
-        cout << "Pending Tasks:" << endl;
-        for (int i = 0; i < tasks.size(); i++) {
-            if (!tasks[i].is_completed()) {
-                cout << i + 1 << ". " << tasks[i].get_description() << ", Due: " << tasks[i].get_due_date() << endl;
+    void undo() {
+        if (!history.isEmpty()) {
+            TaskMemento memento = history.getMemento();
+            redoStack.addMemento(memento); // Store in redo stack before restoring
+            for (auto& task : tasks) {
+                if (task.getDescription() == memento.getDescription()) {
+                    task.restore(memento);
+                    break;
+                }
             }
+            cout << "Undo successful." << endl;
+        } else {
+            cout << "Nothing to undo." << endl;
+        }
+    }
+
+    void redo() {
+        if (!redoStack.isRedoStackEmpty()) {
+            TaskMemento memento = redoStack.redo();
+            history.addMemento(memento);
+            for (auto& task : tasks) {
+                if (task.getDescription() == memento.getDescription()) {
+                    task.restore(memento);
+                    break;
+                }
+            }
+            cout << "Redo successful." << endl;
+        } else {
+            cout << "Nothing to redo." << endl;
         }
     }
 
 private:
     vector<Task> tasks;
+    TaskHistory history;
+    TaskHistory redoStack;
 };
 
 int main() {
-    ToDoList todo_list;
+    ToDoListManager manager;
 
     while (true) {
         cout << "What would you like to do?" << endl;
@@ -104,7 +221,9 @@ int main() {
         cout << "5. View all tasks" << endl;
         cout << "6. View completed tasks" << endl;
         cout << "7. View pending tasks" << endl;
-        cout << "8. Exit" << endl;
+        cout << "8. Undo" << endl;
+        cout << "9. Redo" << endl;
+        cout << "10. Exit" << endl;
 
         int choice;
         cin >> choice;
@@ -115,10 +234,18 @@ int main() {
                 cout << "Enter task description: ";
                 cin.ignore();
                 getline(cin, description);
-                cout << "Enter due date (YYYY-MM-DD): ";
-                cin >> due_date;
-                Task task(description, due_date);
-                todo_list.add_task(task);
+
+                string addDueDate;
+                cout << "Do you want to add a due date? (y/n): ";
+                cin >> addDueDate;
+
+                if (addDueDate == "y" || addDueDate == "Y") {
+                    cout << "Enter due date (YYYY-MM-DD): ";
+                    cin >> due_date;
+                }
+
+                Task task = Task::Builder(description).setDueDate(due_date).build();
+                manager.addTask(task);
                 cout << "Task added successfully!" << endl;
                 break;
             }
@@ -126,7 +253,7 @@ int main() {
                 int index;
                 cout << "Enter task index: ";
                 cin >> index;
-                todo_list.mark_task_completed(index - 1);
+                manager.markTaskCompleted(index - 1);
                 cout << "Task marked as completed!" << endl;
                 break;
             }
@@ -134,7 +261,7 @@ int main() {
                 int index;
                 cout << "Enter task index: ";
                 cin >> index;
-                todo_list.mark_task_pending(index - 1);
+                manager.markTaskPending(index - 1);
                 cout << "Task marked as pending!" << endl;
                 break;
             }
@@ -142,23 +269,31 @@ int main() {
                 int index;
                 cout << "Enter task index: ";
                 cin >> index;
-                todo_list.delete_task(index - 1);
+                manager.deleteTask(index - 1);
                 cout << "Task deleted successfully!" << endl;
                 break;
             }
             case 5: {
-                todo_list.view_all_tasks();
+                manager.viewTasks("Show all");
                 break;
             }
             case 6: {
-                todo_list.view_completed_tasks();
+                manager.viewTasks("Show completed");
                 break;
             }
             case 7: {
-                todo_list.view_pending_tasks();
+                manager.viewTasks("Show pending");
                 break;
             }
             case 8: {
+                manager.undo();
+                break;
+            }
+            case 9: {
+                manager.redo();
+                break;
+            }
+            case 10: {
                 cout << "Exiting..." << endl;
                 return 0;
             }
